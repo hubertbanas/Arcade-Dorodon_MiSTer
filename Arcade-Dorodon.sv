@@ -81,21 +81,60 @@ assign LED_USER  = ioctl_download;
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
 
-assign HDMI_ARX = status[1] ? 8'd16 : status[2] ? 8'd4 : 8'd1;
-assign HDMI_ARY = status[1] ? 8'd9  : status[2] ? 8'd3 : 8'd1;
+assign HDMI_ARX = status[1] ? 8'd16 : status[2] ? 8'd4 : 8'd3;
+assign HDMI_ARY = status[1] ? 8'd9  : status[2] ? 8'd3 : 8'd4;
 
 `include "build_id.v" 
 localparam CONF_STR = {
 	"A.DORODN;;",
+	"F,rom;", // allow loading of alternate ROMs
 	"-;",
 	"O1,Aspect Ratio,Original,Wide;",
 	"O2,Orientation,Vert,Horz;",
-	"O34,Scanlines(vert),No,25%,50%,75%;",
+	"O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"-;",
-	"T6,Reset;",
-	"J,Start 1P,Start 2P;",
-	"V,v2.00.",`BUILD_DATE
+	"O89,Difficulty,Easy,Medium,Hard,Hardest;",
+	"OB,Lives,3,5;",
+	"OD,Bonus Life,40k,20k;",
+	"OC,Cabinet,Upright,Cocktail;",	
+	"-;",
+	"R0,Reset;",
+	"V,v",`BUILD_DATE
 };
+/*
+ constant do_dip_block_1_c : std_logic_vector(7 downto 0) :=
+    -- Lives ------------------------------------------------------------------
+    -- 0 = 5 Lives
+    -- 1 = 3 Lives
+    '0' &
+    -- Free Play --------------------------------------------------------------
+    -- 0 = Free Play
+    -- 1 = No Free Play
+    '1' &
+    -- Cabinet ----------------------------------------------------------------
+    -- 0 = Upright
+    -- 1 = Cocktail
+    '0' &
+    -- Screen Freeze ----------------------------------------------------------
+    -- 0 = Freeze
+    -- 1 = No Freeze
+    '1' &
+    -- Rack Test (Cheat) ------------------------------------------------------
+    -- 0 = On
+    -- 1 = Off
+    '1' &
+    -- Bonus Life -------------------------------------------------------------
+    -- 0 = 40000
+    -- 1 = 20000
+    '1' &
+    -- Difficulty -------------------------------------------------------------
+    -- 11 = Easy
+    -- 10 = Medium
+    -- 01 = Hard
+    -- 00 = Hardest
+    "10";
+*/
+wire [7:0] m_dip = {~status[11],1'b1,status[12],1'b1,1'b1,~status[13],~status[9:8]};
 
 ////////////////////   CLOCKS   ///////////////////
 
@@ -114,6 +153,7 @@ pll pll
 
 wire [31:0] status;
 wire  [1:0] buttons;
+wire        forced_scandoubler;
 
 wire        ioctl_download;
 wire        ioctl_wr;
@@ -134,6 +174,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 
 	.buttons(buttons),
 	.status(status),
+	.forced_scandoubler(forced_scandoubler),
 
 	.ioctl_download(ioctl_download),
 	.ioctl_wr(ioctl_wr),
@@ -162,6 +203,20 @@ always @(posedge clk_sys) begin
 
 			'h005: btn_one_player  <= pressed; // F1
 			'h006: btn_two_players <= pressed; // F2
+			// JPAC/IPAC/MAME Style Codes
+			'h005: btn_one_player  <= pressed; // F1
+			'h006: btn_two_players <= pressed; // F2
+			'h016: btn_start_1     <= pressed; // 1
+			'h01E: btn_start_2     <= pressed; // 2
+			'h02E: btn_coin_1      <= pressed; // 5
+			'h036: btn_coin_2      <= pressed; // 6
+			'h02D: btn_up_2        <= pressed; // R
+			'h02B: btn_down_2      <= pressed; // F
+			'h023: btn_left_2      <= pressed; // D
+			'h034: btn_right_2     <= pressed; // G
+			'h01C: btn_fire_2      <= pressed; // A
+			'h01B: btn_bomb_2      <= pressed; // S
+			'h02C: btn_test        <= pressed; // T
 		endcase
 	end
 end
@@ -175,6 +230,19 @@ reg btn_bomb  = 0;
 reg btn_one_player  = 0;
 reg btn_two_players = 0;
 
+reg btn_start_1=0;
+reg btn_start_2=0;
+reg btn_coin_1=0;
+reg btn_coin_2=0;
+reg btn_up_2=0;
+reg btn_down_2=0;
+reg btn_left_2=0;
+reg btn_right_2=0;
+reg btn_fire_2=0;
+reg btn_bomb_2=0;
+reg btn_test=0;
+
+
 wire m_up     = status[2] ? btn_left  | joy[1] : btn_up    | joy[3];
 wire m_down   = status[2] ? btn_right | joy[0] : btn_down  | joy[2];
 wire m_left   = status[2] ? btn_down  | joy[2] : btn_left  | joy[1];
@@ -182,50 +250,39 @@ wire m_right  = status[2] ? btn_up    | joy[3] : btn_right | joy[0];
 wire m_fire   = btn_fire;// | joy[4];
 wire m_bomb   = btn_bomb;// | joy[5];
 
+wire m_up_2     = status[2] ? btn_left_2  | joy[1] : btn_up_2    | joy[3];
+wire m_down_2   = status[2] ? btn_right_2 | joy[0] : btn_down_2  | joy[2];
+wire m_left_2   = status[2] ? btn_down_2  | joy[2] : btn_left_2  | joy[1];
+wire m_right_2  = status[2] ? btn_up_2    | joy[3] : btn_right_2 | joy[0];
+wire m_fire_2  = btn_fire_2;//|joy[4];
+wire m_bomb_2  = btn_bomb_2;//|joy[5];
+
+
 wire m_start1 = btn_one_player  | joy[4];
 wire m_start2 = btn_two_players | joy[5];
 wire m_coin   = m_start1 | m_start2;
 
 wire hblank, vblank;
-wire ce_vid;
 wire hs, vs;
-wire rde, rhs, rvs;
-wire [1:0] r,g,b,rr,rg,rb;
+wire ce_vid;
+wire [1:0] r,g;
+wire [1:0] b;
 
-assign VGA_CLK  = clk_sys;
-assign VGA_CE   = ce_vid;
-assign VGA_R    = {4{r}};
-assign VGA_G    = {4{g}};
-assign VGA_B    = {4{b}};
-assign VGA_DE   = ~(hblank | vblank);
-assign VGA_HS   = ~hs;
-assign VGA_VS   = ~vs;
-
-assign HDMI_CLK = VGA_CLK;
-assign HDMI_CE  = status[2] ? VGA_CE : 1'b1;
-assign HDMI_R   = status[2] ? VGA_R  : {4{rr}};
-assign HDMI_G   = status[2] ? VGA_G  : {4{rg}};
-assign HDMI_B   = status[2] ? VGA_B  : {4{rb}};
-assign HDMI_DE  = status[2] ? VGA_DE : rde;
-assign HDMI_HS  = status[2] ? VGA_HS : rhs;
-assign HDMI_VS  = status[2] ? VGA_VS : rvs;
-assign HDMI_SL  = status[2] ? 2'd0   : status[4:3];
-
-screen_rotate #(240,192,6,8,1) screen_rotate
+arcade_rotate_fx #(240,192,6,1) arcade_video
 (
-	.clk_in(clk_sys),
-	.ce_in(ce_vid),
-	.video_in({r,g,b}),
-	.hblank(hblank),
-	.vblank(vblank),
+        .*,
+        .ce_pix(ce_vid),
+        .clk_video(clk_sys),
 
-	.clk_out(clk_sys),
-	.video_out({rr,rg,rb}),
-	.hsync(rhs),
-	.vsync(rvs),
-	.de(rde)
+        .RGB_in({r,g,b}),
+        .HBlank(hblank),
+        .VBlank(vblank),
+        .HSync(hs),
+        .VSync(vs),
+
+        .fx(status[5:3]),
+        .no_rotate(status[2])
 );
-
 wire [7:0] audio;
 assign AUDIO_L = {audio, 8'd0};
 assign AUDIO_R = AUDIO_L;
@@ -251,15 +308,17 @@ ladybug dorodon
 
 	.O_AUDIO(audio),
 
-	.but_coin_s(~{1'b0,m_coin}),
-	.but_fire_s(~{1'b0,m_fire}),
-	.but_bomb_s(~{1'b0,m_bomb}),
+	.but_coin_s(~{1'b0,m_coin|btn_coin_1|btn_coin_2}),
+	.but_fire_s(~{m_fire_2,m_fire}),
+	.but_bomb_s(~{m_bomb_2,m_bomb}),
 	.but_tilt_s(~{1'b0,1'b0}),
-	.but_select_s(~{m_start2,m_start1}),
-	.but_up_s(~{1'b0,m_up}),
-	.but_down_s(~{1'b0,m_down}),
-	.but_left_s(~{1'b0,m_left}),
-	.but_right_s(~{1'b0,m_right})
+	.but_select_s(~{m_start2|btn_start_2,m_start1|btn_start_1}),
+	.but_up_s(~{m_up_2,m_up}),
+	.but_down_s(~{m_down_2,m_down}),
+	.but_left_s(~{m_left_2,m_left}),
+	.but_right_s(~{m_right_2,m_right}),
+	.dip_block_1_s(m_dip)
+
 );
 
 endmodule
