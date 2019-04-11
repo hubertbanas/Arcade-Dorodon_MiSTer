@@ -291,7 +291,7 @@ assign AUDIO_S = 1;
 ladybug dorodon
 (
 	.CLK_IN(clk_sys),
-	.I_RESET(RESET | status[0] | status[6] | buttons[1]),
+	.I_RESET(RESET | status[0] | ioctl_download | buttons[1]),
 	.O_PIXCE(ce_vid),
 
 	.O_VIDEO_R(r),
