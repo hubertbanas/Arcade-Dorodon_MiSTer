@@ -112,7 +112,7 @@
 		"R0,Reset;",
 		"J1,Fire,Bomb,Start 1P,Start 2P,Coin;",
 		"jn,A,B,Start,Select,R;",
-		"jp,B,A,Start,,Select;",
+		"jp,B,A,Start,Select,R;",
 		"V,v",`BUILD_DATE
 		};
 		/*
@@ -282,9 +282,9 @@
 		wire m_bomb_2  = btn_bomb_2|joy[5];
 
 
-		wire m_start1 = btn_one_player  | joy[6];
-		wire m_start2 = btn_two_players | joy[7];
-		wire m_coin   = m_start1 | m_start2 | joy[8];
+		wire m_start1 = btn_one_player  | joystick_0[6];
+		wire m_start2 = btn_two_players | joy[7] | joystick_1[6];
+		wire m_coin   = btn_coin_1 | btn_coin_2 | joy[8];
 
 		wire hblank, vblank;
 		wire hs, vs;
